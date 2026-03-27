@@ -227,6 +227,12 @@
             color: #6b7280;
         }
 
+        .version-text {
+            margin-top: 12px;
+            font-size: 0.75rem;
+            color: rgba(3,105,161,0.4);
+        }
+
         /* スマホ向けレスポンシブ */
         @media (max-width: 600px) {
             h1 { font-size: 1.5rem; }
@@ -283,6 +289,7 @@
             <button class="btn btn-secondary" onclick="showRanking()">👑 ランキング</button>
         </div>
         <button class="btn-toggle" id="bgm-toggle" onclick="toggleBGM()">🔊 BGM ON</button>
+        <p class="version-text">Ver1-1</p>
     </div>
 
     <!-- ゲーム画面 -->
@@ -608,13 +615,13 @@
     // ===== カード生成 =====
     function generateCards(pairCount, hasDummy) {
         let available = [];
-        for (let i = 1; i <= 50; i++) {
+        for (let i = 1; i <= 66; i++) {
             if (!STATE.usedImages.includes(i)) available.push(i);
         }
         if (available.length < pairCount) {
             STATE.usedImages = [];
             available = [];
-            for (let i = 1; i <= 50; i++) available.push(i);
+            for (let i = 1; i <= 66; i++) available.push(i);
         }
         shuffleArray(available);
         const selected = available.slice(0, pairCount);
@@ -763,7 +770,7 @@
     function levelClear() {
         stopTimer();
         stopBGM();
-        const levelScore = STATE.timeLeft * STATE.level;
+        const levelScore = STATE.timeLeft * Math.pow(10, STATE.level - 1);
         STATE.totalScore += levelScore;
 
         // レベルクリアごとにランキング保存（途中離脱対策）
