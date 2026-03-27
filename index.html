@@ -289,7 +289,7 @@
             <button class="btn btn-secondary" onclick="showRanking()">👑 ランキング</button>
         </div>
         <button class="btn-toggle" id="bgm-toggle" onclick="toggleBGM()">🔊 BGM ON</button>
-        <p class="version-text">Ver1-1</p>
+        <p class="version-text">Ver1-2</p>
     </div>
 
     <!-- ゲーム画面 -->
@@ -402,17 +402,25 @@
     function playMatchSound() {
         ensureAudioCtx();
         if (audioCtx.state !== 'running') { audioCtx.resume(); return; }
-        [523, 659, 784].forEach((freq, i) => {
+        // 心地よいキラキラ和音
+        const chords = [
+            { freq: 523, delay: 0 },
+            { freq: 659, delay: 0.08 },
+            { freq: 784, delay: 0.16 },
+            { freq: 1047, delay: 0.24 }
+        ];
+        chords.forEach(({ freq, delay }) => {
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
             osc.connect(gain);
             gain.connect(audioCtx.destination);
             osc.type = 'sine';
             osc.frequency.value = freq;
-            gain.gain.setValueAtTime(0.12, audioCtx.currentTime + i * 0.1);
-            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + i * 0.1 + 0.2);
-            osc.start(audioCtx.currentTime + i * 0.1);
-            osc.stop(audioCtx.currentTime + i * 0.1 + 0.2);
+            gain.gain.setValueAtTime(0, audioCtx.currentTime + delay);
+            gain.gain.linearRampToValueAtTime(0.12, audioCtx.currentTime + delay + 0.03);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + delay + 0.4);
+            osc.start(audioCtx.currentTime + delay);
+            osc.stop(audioCtx.currentTime + delay + 0.4);
         });
     }
 
@@ -515,6 +523,33 @@
         if (topBgmInterval) { clearInterval(topBgmInterval); topBgmInterval = null; }
         topBgmOscillators.forEach(o => { try { o.stop(); } catch(e) {} });
         topBgmOscillators = [];
+    }
+
+    // レベルクリア時のファンファーレ
+    function playClearFanfare() {
+        ensureAudioCtx();
+        if (audioCtx.state !== 'running') return;
+        const melody = [
+            { freq: 523, time: 0, dur: 0.15 },
+            { freq: 659, time: 0.12, dur: 0.15 },
+            { freq: 784, time: 0.24, dur: 0.15 },
+            { freq: 1047, time: 0.36, dur: 0.3 },
+            { freq: 880, time: 0.56, dur: 0.12 },
+            { freq: 1047, time: 0.68, dur: 0.5 }
+        ];
+        melody.forEach(({ freq, time, dur }) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.type = 'square';
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0, audioCtx.currentTime + time);
+            gain.gain.linearRampToValueAtTime(0.08, audioCtx.currentTime + time + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + time + dur);
+            osc.start(audioCtx.currentTime + time);
+            osc.stop(audioCtx.currentTime + time + dur);
+        });
     }
 
     // ===== ゲーム状態 =====
@@ -770,6 +805,7 @@
     function levelClear() {
         stopTimer();
         stopBGM();
+        playClearFanfare();
         const levelScore = STATE.timeLeft * Math.pow(10, STATE.level - 1);
         STATE.totalScore += levelScore;
 
