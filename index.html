@@ -289,7 +289,7 @@
             <button class="btn btn-secondary" onclick="showRanking()">👑 ランキング</button>
         </div>
         <button class="btn-toggle" id="bgm-toggle" onclick="toggleBGM()">🔊 BGM ON</button>
-        <p class="version-text">Ver1-2</p>
+        <p class="version-text">Ver1-3</p>
     </div>
 
     <!-- ゲーム画面 -->
@@ -597,6 +597,7 @@
     function goToStart() {
         stopTimer();
         stopBGM();
+        if (rankingListener) { db.ref('ranking').off('value', rankingListener); rankingListener = null; }
         startTopBGM();
         showScreen('start-screen');
     }
@@ -968,19 +969,35 @@
         });
     }
 
+    let rankingListener = null;
+
     function showRanking() {
         stopBGM();
         stopTopBGM();
+        stopTimer();
+
+        // ゲーム中にランキングへ遷移した場合は途中スコアを確定保存
+        if (STATE.totalScore > 0 && progressKey) {
+            // progressKeyの途中保存はそのまま確定扱いにする
+            progressKey = null;
+            trimRanking();
+        }
+
         const tbody = document.getElementById('ranking-body');
         tbody.innerHTML = '<tr><td colspan="5" style="padding:30px;color:rgba(30,58,95,0.5);">読み込み中...</td></tr>';
         showScreen('ranking-screen');
 
-        db.ref('ranking').orderByChild('score').once('value', snapshot => {
+        // 前回のリスナーを解除
+        if (rankingListener) {
+            db.ref('ranking').off('value', rankingListener);
+        }
+
+        // リアルタイムリスナーで常に最新を表示
+        rankingListener = db.ref('ranking').on('value', snapshot => {
             const ranking = [];
             snapshot.forEach(child => {
                 ranking.push(child.val());
             });
-            // スコア降順
             ranking.sort((a, b) => b.score - a.score);
             const top20 = ranking.slice(0, 20);
 
@@ -1001,7 +1018,7 @@
                         </tr>`;
                 });
             }
-        }).catch(err => {
+        }, err => {
             console.error('ランキング取得エラー:', err);
             tbody.innerHTML = '<tr><td colspan="5" style="padding:30px;color:#ef4444;">読み込みに失敗しました</td></tr>';
         });
