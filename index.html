@@ -233,6 +233,28 @@
             color: rgba(3,105,161,0.4);
         }
 
+        .ranking-tabs {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+            justify-content: center;
+        }
+        .ranking-tab {
+            padding: 8px 16px;
+            border: 2px solid #38bdf8;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.3);
+            color: #0369a1;
+            font-size: 0.9rem;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .ranking-tab.active {
+            background: #0ea5e9;
+            color: #fff;
+            border-color: #0284c7;
+        }
+
         /* スマホ向けレスポンシブ */
         @media (max-width: 600px) {
             h1 { font-size: 1.5rem; }
@@ -282,22 +304,23 @@
     <div id="start-screen">
         <h1>🃏 しんけいすずじゃく</h1>
         <img src="images/top.jpg" alt="トップ画像" class="screen-img">
-        <p>レベル1（2×2）からレベル6（6×8）まで挑戦しよう</p>
         <input type="text" id="nickname-input" placeholder="あだ名を入力してね" maxlength="12" aria-label="あだ名">
+        <p>ゲームモードを選んでね</p>
         <div class="btn-group-vertical">
-            <button class="btn btn-primary" onclick="startGame()">ゲームスタート</button>
+            <button class="btn btn-primary btn-tall" onclick="startGame('levelup')">🏔️ レベルアップゲーム</button>
+            <button class="btn btn-primary btn-tall" onclick="startGame('timetrial')" style="background:linear-gradient(135deg,#f59e0b,#d97706)">⏱️ タイムトライアルゲーム</button>
             <button class="btn btn-secondary" onclick="showRanking()">👑 ランキング</button>
         </div>
         <button class="btn-toggle" id="bgm-toggle" onclick="toggleBGM()">🔊 BGM ON</button>
-        <p class="version-text">Ver1-3</p>
+        <p class="version-text">Ver1-4</p>
     </div>
 
     <!-- ゲーム画面 -->
     <div id="game-screen">
         <div class="game-header">
             <div class="info">プレイヤー: <span id="player-name"></span></div>
-            <div class="info">レベル <span id="level-display"></span>（<span id="grid-display"></span>）</div>
-            <div class="info">スコア: <span id="score-display">0</span></div>
+            <div class="info" id="level-info">レベル <span id="level-display"></span>（<span id="grid-display"></span>）</div>
+            <div class="info" id="score-info">スコア: <span id="score-display">0</span></div>
             <div class="timer" id="timer-display">--:--</div>
         </div>
         <div id="board"></div>
@@ -324,8 +347,12 @@
     <!-- ランキング画面 -->
     <div id="ranking-screen">
         <h1>🏆 ランキング TOP20</h1>
+        <div class="ranking-tabs">
+            <button class="ranking-tab active" id="tab-levelup" onclick="switchRankingTab('levelup')">🏔️ レベルアップ</button>
+            <button class="ranking-tab" id="tab-timetrial" onclick="switchRankingTab('timetrial')">⏱️ タイムトライアル</button>
+        </div>
         <table class="ranking-table">
-            <thead>
+            <thead id="ranking-thead">
                 <tr><th>順位</th><th>名前</th><th>到達レベル</th><th>スコア</th><th>日時</th></tr>
             </thead>
             <tbody id="ranking-body"></tbody>
@@ -555,6 +582,7 @@
     // ===== ゲーム状態 =====
     const STATE = {
         nickname: '',
+        gameMode: 'levelup', // 'levelup' or 'timetrial'
         level: 1,
         totalScore: 0,
         timeLeft: 0,
@@ -564,7 +592,11 @@
         lockBoard: false,
         matchedPairs: 0,
         totalPairs: 0,
-        usedImages: []
+        usedImages: [],
+        // タイムトライアル用
+        ttRound: 1,
+        ttTotalTime: 0,
+        ttElapsed: 0
     };
 
     // レベル設定: Lv1→2×2(2ペア), Lv2→2×4(4ペア), Lv3→3×5(7ペア+ダミー1), Lv4→4×6(12ペア), Lv5→4×8(16ペア)
@@ -597,14 +629,13 @@
     function goToStart() {
         stopTimer();
         stopBGM();
-        if (rankingListener) { db.ref('ranking').off('value', rankingListener); rankingListener = null; }
+        if (rankingListener) { db.ref(rankingListener.path).off('value', rankingListener.fn); rankingListener = null; }
         startTopBGM();
         showScreen('start-screen');
     }
 
     // ===== ゲーム開始 =====
-    function startGame() {
-        // LINEブラウザ等でも確実に音を鳴らすためユーザー操作時にAudioContext初期化
+    function startGame(mode) {
         ensureAudioCtx();
         if (audioCtx.state === 'suspended') audioCtx.resume();
         stopTopBGM();
@@ -618,10 +649,18 @@
             return;
         }
         STATE.nickname = name;
-        STATE.level = 1;
-        STATE.totalScore = 0;
+        STATE.gameMode = mode;
         STATE.usedImages = [];
-        startLevel();
+
+        if (mode === 'timetrial') {
+            STATE.ttRound = 1;
+            STATE.ttTotalTime = 0;
+            startTimeTrialRound();
+        } else {
+            STATE.level = 1;
+            STATE.totalScore = 0;
+            startLevel();
+        }
     }
 
     function startLevel() {
@@ -763,7 +802,10 @@
             STATE.matchedPairs++;
             playMatchSound();
             resetSelection();
-            if (STATE.matchedPairs === STATE.totalPairs) levelClear();
+            if (STATE.matchedPairs === STATE.totalPairs) {
+                if (STATE.gameMode === 'timetrial') ttRoundClear();
+                else levelClear();
+            }
         } else {
             playMissSound();
             setTimeout(() => {
@@ -970,63 +1012,249 @@
     }
 
     let rankingListener = null;
+    let currentRankingTab = 'levelup';
+
+    function switchRankingTab(tab) {
+        currentRankingTab = tab;
+        document.getElementById('tab-levelup').classList.toggle('active', tab === 'levelup');
+        document.getElementById('tab-timetrial').classList.toggle('active', tab === 'timetrial');
+
+        const thead = document.getElementById('ranking-thead');
+        if (tab === 'timetrial') {
+            thead.innerHTML = '<tr><th>順位</th><th>名前</th><th>タイム</th><th>日時</th></tr>';
+        } else {
+            thead.innerHTML = '<tr><th>順位</th><th>名前</th><th>到達レベル</th><th>スコア</th><th>日時</th></tr>';
+        }
+        loadRankingData(tab);
+    }
 
     function showRanking() {
         stopBGM();
         stopTopBGM();
         stopTimer();
 
-        // ゲーム中にランキングへ遷移した場合は途中スコアを確定保存
-        if (STATE.totalScore > 0 && progressKey) {
-            // progressKeyの途中保存はそのまま確定扱いにする
+        if (STATE.gameMode === 'levelup' && STATE.totalScore > 0 && progressKey) {
             progressKey = null;
             trimRanking();
         }
 
+        showScreen('ranking-screen');
+        switchRankingTab(currentRankingTab);
+    }
+
+    function loadRankingData(tab) {
         const tbody = document.getElementById('ranking-body');
         tbody.innerHTML = '<tr><td colspan="5" style="padding:30px;color:rgba(30,58,95,0.5);">読み込み中...</td></tr>';
-        showScreen('ranking-screen');
 
-        // 前回のリスナーを解除
         if (rankingListener) {
-            db.ref('ranking').off('value', rankingListener);
+            db.ref(rankingListener.path).off('value', rankingListener.fn);
+            rankingListener = null;
         }
 
-        // リアルタイムリスナーで常に最新を表示
-        rankingListener = db.ref('ranking').on('value', snapshot => {
+        const dbPath = tab === 'timetrial' ? 'ranking_tt' : 'ranking';
+        const listenerFn = db.ref(dbPath).on('value', snapshot => {
             const ranking = [];
-            snapshot.forEach(child => {
-                ranking.push(child.val());
-            });
-            ranking.sort((a, b) => b.score - a.score);
+            snapshot.forEach(child => { ranking.push(child.val()); });
+
+            if (tab === 'timetrial') {
+                ranking.sort((a, b) => a.score - b.score);
+            } else {
+                ranking.sort((a, b) => b.score - a.score);
+            }
             const top20 = ranking.slice(0, 20);
 
             tbody.innerHTML = '';
             if (top20.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" style="padding:30px;color:rgba(30,58,95,0.5);">まだ記録がありません</td></tr>';
+                const cols = tab === 'timetrial' ? 4 : 5;
+                tbody.innerHTML = `<tr><td colspan="${cols}" style="padding:30px;color:rgba(30,58,95,0.5);">まだ記録がありません</td></tr>`;
             } else {
                 top20.forEach((entry, i) => {
                     const rankClass = i < 3 ? `rank-${i + 1}` : '';
                     const medal = ['🥇', '🥈', '🥉'][i] || `${i + 1}`;
-                    tbody.innerHTML += `
-                        <tr class="${rankClass}">
-                            <td>${medal}</td>
-                            <td>${escapeHtml(entry.name)}</td>
-                            <td>Lv.${entry.level}</td>
-                            <td>${entry.score.toLocaleString()}</td>
-                            <td style="font-size:0.85rem">${entry.date}</td>
-                        </tr>`;
+                    if (tab === 'timetrial') {
+                        tbody.innerHTML += `
+                            <tr class="${rankClass}">
+                                <td>${medal}</td>
+                                <td>${escapeHtml(entry.name)}</td>
+                                <td>${entry.score.toFixed(1)}秒</td>
+                                <td style="font-size:0.85rem">${entry.date}</td>
+                            </tr>`;
+                    } else {
+                        tbody.innerHTML += `
+                            <tr class="${rankClass}">
+                                <td>${medal}</td>
+                                <td>${escapeHtml(entry.name)}</td>
+                                <td>Lv.${entry.level}</td>
+                                <td>${entry.score.toLocaleString()}</td>
+                                <td style="font-size:0.85rem">${entry.date}</td>
+                            </tr>`;
+                    }
                 });
             }
         }, err => {
             console.error('ランキング取得エラー:', err);
             tbody.innerHTML = '<tr><td colspan="5" style="padding:30px;color:#ef4444;">読み込みに失敗しました</td></tr>';
         });
+
+        rankingListener = { path: dbPath, fn: listenerFn };
+    }
+
+    // ===== タイムトライアルモード =====
+    function startTimeTrialRound() {
+        const cols = 4, rows = 4, pairCount = 8;
+
+        document.getElementById('player-name').textContent = STATE.nickname;
+        document.getElementById('level-info').innerHTML = `ラウンド <span>${STATE.ttRound}</span> / 8（4×4）`;
+        document.getElementById('score-info').innerHTML = `合計タイム: <span>${STATE.ttTotalTime.toFixed(1)}</span>秒`;
+
+        STATE.matchedPairs = 0;
+        STATE.totalPairs = pairCount;
+        STATE.firstCard = null;
+        STATE.secondCard = null;
+        STATE.lockBoard = false;
+        STATE.ttElapsed = 0;
+
+        const cards = generateCards(pairCount, false);
+        renderBoard(cards, cols, rows);
+
+        // カウントアップタイマー
+        const display = document.getElementById('timer-display');
+        display.classList.remove('warning');
+        display.textContent = '0.0秒';
+
+        showScreen('game-screen');
+        startTTTimer();
+        startBGM();
+    }
+
+    function startTTTimer() {
+        stopTimer();
+        const startTime = performance.now();
+        STATE.timerId = setInterval(() => {
+            STATE.ttElapsed = (performance.now() - startTime) / 1000;
+            const display = document.getElementById('timer-display');
+            display.textContent = `${STATE.ttElapsed.toFixed(1)}秒`;
+        }, 100);
+    }
+
+    function ttRoundClear() {
+        stopTimer();
+        stopBGM();
+        playClearFanfare();
+
+        const roundTime = STATE.ttElapsed;
+        STATE.ttTotalTime += roundTime;
+
+        if (STATE.ttRound >= 8) {
+            // 全8ラウンド完了
+            ttGameComplete();
+        } else {
+            // 次のラウンドへ
+            showTTRoundResult(roundTime);
+        }
+    }
+
+    function showTTRoundResult(roundTime) {
+        const box = document.getElementById('result-box');
+        const title = document.getElementById('result-title');
+        const scoreText = document.getElementById('result-score-text');
+        const detail = document.getElementById('result-detail');
+        const levelDetail = document.getElementById('result-level-detail');
+        const actionBtn = document.getElementById('result-action-btn');
+        const resultImg = document.getElementById('result-img');
+
+        box.className = 'result-box success';
+        resultImg.src = 'images/clear.jpg';
+        resultImg.alt = 'クリア';
+        title.textContent = `🍒 ラウンド${STATE.ttRound} クリア！`;
+        scoreText.textContent = `${roundTime.toFixed(1)}秒`;
+        detail.textContent = `合計タイム: ${STATE.ttTotalTime.toFixed(1)}秒`;
+        levelDetail.textContent = `残り ${8 - STATE.ttRound} ラウンド`;
+        actionBtn.textContent = `次のラウンドへ → ラウンド${STATE.ttRound + 1}`;
+        actionBtn.onclick = () => { STATE.ttRound++; startTimeTrialRound(); };
+
+        showScreen('result-screen');
+    }
+
+    function ttGameComplete() {
+        const box = document.getElementById('result-box');
+        const title = document.getElementById('result-title');
+        const scoreText = document.getElementById('result-score-text');
+        const detail = document.getElementById('result-detail');
+        const levelDetail = document.getElementById('result-level-detail');
+        const actionBtn = document.getElementById('result-action-btn');
+        const resultImg = document.getElementById('result-img');
+
+        // 新記録チェック
+        db.ref('ranking_tt').orderByChild('score').limitToFirst(1).once('value', snapshot => {
+            let bestTime = Infinity;
+            snapshot.forEach(child => { bestTime = child.val().score; });
+
+            const isNewRecord = STATE.ttTotalTime < bestTime || bestTime === Infinity;
+
+            box.className = 'result-box success';
+            if (isNewRecord) {
+                resultImg.src = 'images/new_record.jpg';
+                resultImg.alt = '新記録';
+                title.textContent = '🏆 新記録！おめでとう！';
+            } else {
+                resultImg.src = 'images/clear.jpg';
+                resultImg.alt = 'クリア';
+                title.textContent = '🎉 全8ラウンド完走！';
+            }
+            scoreText.textContent = `合計タイム: ${STATE.ttTotalTime.toFixed(1)}秒`;
+            detail.textContent = '全8ラウンドクリア！';
+            levelDetail.textContent = '';
+
+            saveTTRanking();
+            actionBtn.textContent = 'タイトルへ戻る';
+            actionBtn.onclick = goToStart;
+            showScreen('result-screen');
+        }).catch(() => {
+            box.className = 'result-box success';
+            resultImg.src = 'images/clear.jpg';
+            resultImg.alt = 'クリア';
+            title.textContent = '🎉 全8ラウンド完走！';
+            scoreText.textContent = `合計タイム: ${STATE.ttTotalTime.toFixed(1)}秒`;
+            detail.textContent = '';
+            levelDetail.textContent = '';
+            saveTTRanking();
+            actionBtn.textContent = 'タイトルへ戻る';
+            actionBtn.onclick = goToStart;
+            showScreen('result-screen');
+        });
+    }
+
+    // タイムトライアル用ランキング保存
+    function saveTTRanking() {
+        const entry = {
+            name: STATE.nickname,
+            score: Math.round(STATE.ttTotalTime * 10) / 10,
+            round: 8,
+            date: new Date().toLocaleString('ja-JP')
+        };
+        db.ref('ranking_tt').push(entry).then(() => {
+            trimTTRanking();
+        }).catch(err => console.error('TTランキング保存エラー:', err));
+    }
+
+    function trimTTRanking() {
+        db.ref('ranking_tt').orderByChild('score').once('value', snapshot => {
+            const entries = [];
+            snapshot.forEach(child => {
+                entries.push({ key: child.key, score: child.val().score });
+            });
+            entries.sort((a, b) => a.score - b.score);
+            if (entries.length > 20) {
+                const removes = entries.slice(20);
+                const updates = {};
+                removes.forEach(e => { updates[e.key] = null; });
+                db.ref('ranking_tt').update(updates);
+            }
+        });
     }
 
     // ===== ブラウザ離脱時の処理 =====
-    // レベルクリアごとにFirebaseに保存済みなので、離脱時の追加保存は不要
-    // progressKeyが残っている場合はそのまま残る（=途中スコアがランキングに残る）
     let hasSavedOnExit = false;
 
     function escapeHtml(str) {
